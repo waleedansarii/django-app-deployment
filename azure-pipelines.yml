@@ -41,7 +41,8 @@ steps:
 - task: SSH@0
   displayName: 'Deploy to Azure VM'
   inputs:
-    sshEndpoint: 'my-azure-vm-connection' 
+    sshEndpoint: 'my-azure-vm-connection'
+    failOnStdErr: false 
     runOptions: 'inline'
     inline: |
       echo "Connecting to VM..."
