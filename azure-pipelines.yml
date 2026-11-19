@@ -7,7 +7,7 @@ pool:
 
 variables:
   DOCKERHUB_CONNECTION: 'dockerhub-creds'
-  SSH_SECURE_FILE: 'azure-vm-ssh-key'
+  SSH_SECURE_FILE: 'django-app_key.pem'
   VM_USER: 'azureuser'
   APP_DIR: '/opt/django-app'
   DB_NAME: 'test_db'
