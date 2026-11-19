@@ -1,0 +1,8 @@
+.git
+.env
+data/
+db.sqlite3
+**/__pycache__
+*.pyc
+mynotes/node_modules
+staticfiles/
