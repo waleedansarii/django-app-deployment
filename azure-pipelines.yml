@@ -1,0 +1,129 @@
+trigger:
+  branches: { include: [ main ] }
+pr: none
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  DOCKERHUB_CONNECTION: 'dockerhub-creds'
+  SSH_SECURE_FILE: 'azure-vm-ssh-key'
+  VM_USER: 'azureuser'
+  APP_DIR: '/opt/django-app'
+  DB_NAME: 'test_db'
+  # VM_IP and DB_PASSWORD come from pipeline variables
+
+stages:
+# ---------------- CI: build once, push to registry ----------------
+- stage: CI
+  displayName: 'Build & Push to Docker Hub'
+  jobs:
+  - job: build
+    steps:
+    - checkout: self
+      displayName: 'Checkout Code'
+
+    - script: docker compose config -q
+      displayName: 'Validate compose file'
+
+    - script: |
+        docker compose build
+        docker images | grep django-notes
+      displayName: 'Docker Build'
+
+    - task: Docker@2
+      displayName: 'Login to Docker Hub'
+      inputs:
+        command: login
+        containerRegistry: '$(DOCKERHUB_CONNECTION)'
+
+    - script: docker compose push
+      displayName: 'Push to Docker Hub'
+
+    - script: docker logout
+      displayName: 'Logout'
+      condition: always()
+
+# ---------------- CD: VM only pulls & runs ----------------
+- stage: CD
+  displayName: 'Deploy to Azure VM'
+  dependsOn: CI
+  jobs:
+  - deployment: vm_deploy
+    environment: 'production'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+
+          - task: DownloadSecureFile@1
+            name: sshkey
+            displayName: 'Get VM SSH key'
+            inputs:
+              secureFile: '$(SSH_SECURE_FILE)'
+
+          - script: |
+              mkdir -p ~/.ssh && chmod 700 ~/.ssh
+              install -m 600 "$(sshkey.secureFilePath)" ~/.ssh/id_vm
+              ssh-keyscan -H "$(VM_IP)" >> ~/.ssh/known_hosts 2>/dev/null
+            displayName: 'Prepare SSH'
+
+          - script: |
+              scp -i ~/.ssh/id_vm docker-compose.yml $(VM_USER)@$(VM_IP):$(APP_DIR)/
+            displayName: 'Copy compose file to VM'
+
+          - script: |
+              set -e
+              ssh -i ~/.ssh/id_vm $(VM_USER)@$(VM_IP) "APP_DIR=$(APP_DIR) DB_NAME=$(DB_NAME) DB_PASSWORD=$(DB_PASSWORD) bash -s" <<'REMOTE'
+                set -e
+                cd "$APP_DIR"
+
+                # .env is created once from pipeline secrets, never from Git
+                if [ ! -f .env ]; then
+                  umask 077
+                  cat > .env <<EOF
+              DB_NAME=$DB_NAME
+              DB_USER=root
+              DB_PASSWORD=$DB_PASSWORD
+              DB_HOST=db
+              DB_PORT=3306
+              EOF
+                fi
+
+                docker compose pull
+                docker compose up -d --remove-orphans
+                docker compose ps
+                docker image prune -f
+              REMOTE
+            displayName: 'Deploy on VM (pull + up -d)'
+            env:
+              DB_PASSWORD: $(DB_PASSWORD)
+
+          - script: |
+              sleep 30
+              ssh -i ~/.ssh/id_vm $(VM_USER)@$(VM_IP) \
+                "cd $(APP_DIR) && docker compose ps && curl -fsS -o /dev/null -w 'HTTP %{http_code}\n' http://localhost:8081/"
+            displayName: 'Smoke test'
+
+          - script: rm -f ~/.ssh/id_vm
+            displayName: 'Cleanup key'
+            condition: always()
+
+# ---------------- post { } equivalent ----------------
+- stage: Post
+  dependsOn: [ CI, CD ]
+  condition: always()
+  jobs:
+  - job: post
+    steps:
+    - script: echo 'Pipeline execution completed.'
+      displayName: 'always'
+    - script: echo 'Deployment successful!'
+      displayName: 'success'
+      condition: eq(dependencies.CD.result, 'Succeeded')
+    - script: |
+        echo 'Deployment failed. Check logs.'
+        exit 1
+      displayName: 'failure'
+      condition: ne(dependencies.CD.result, 'Succeeded')
