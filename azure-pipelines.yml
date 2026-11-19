@@ -110,20 +110,23 @@ stages:
             displayName: 'Cleanup key'
             condition: always()
 
-# ---------------- post { } equivalent ----------------
+# ---------------- post { } equivalent -------------------
 - stage: Post
-  dependsOn: [ CI, CD ]
+  displayName: 'Post actions'
+  dependsOn: [CI, CD]
   condition: always()
   jobs:
   - job: post
     steps:
     - script: echo 'Pipeline execution completed.'
       displayName: 'always'
+
     - script: echo 'Deployment successful!'
       displayName: 'success'
-      condition: eq(dependencies.CD.result, 'Succeeded')
+      condition: in(stageDependencies.CD.vm_deploy.result, 'Succeeded', 'SucceededWithIssues')
+
     - script: |
         echo 'Deployment failed. Check logs.'
         exit 1
       displayName: 'failure'
-      condition: ne(dependencies.CD.result, 'Succeeded')
+      condition: notIn(stageDependencies.CD.vm_deploy.result, 'Succeeded', 'SucceededWithIssues')
