@@ -76,20 +76,14 @@ steps:
   displayName: 'Smoke Test (curl)'
 
 # ==========================================
-# STEP 5: POST
+# STEP 5: POST NOTIFICATIONS (Simple Steps)
 # ==========================================
-- stage: PostOK
-  dependsOn: CD
-  condition: succeeded('CD')
-  jobs:
-  - job: notify
-    steps:
-    - script: echo 'Deployment successful!'
+- script: echo 'Deployment successful!'
+  displayName: 'Success Message'
+  condition: succeeded()                                                      # Only runs if all previous steps passed
 
-- stage: PostFail
-  dependsOn: CD
-  condition: failed('CD')
-  jobs:
-  - job: notify
-    steps:
-    - script: echo 'Deployment failed — check logs'
+- script: |
+    echo 'Deployment failed — check logs above.'
+    exit 1                                                                    # Fails the step so the pipeline shows up as Red/Failed
+  displayName: 'Failure Message'
+  condition: failed()                                                         # Only runs if any previous step failed
